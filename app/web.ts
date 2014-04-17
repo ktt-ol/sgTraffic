@@ -3,7 +3,8 @@ require('source-map-support').install();
 
 import events = require('events');
 import http = require('http');
-
+import fs = require('fs');
+import rrd = require('./rrd');
 
 export interface SSE {
   message:string;
@@ -55,7 +56,7 @@ export class Server {
   private em:events.EventEmitter = new events.EventEmitter();
   private connectedClients:Client[] = [];
 
-  constructor(private port:number) {
+  constructor(private port:number, private graphSource:rrd.GraphSource) {
   }
 
   // removes all inactive clients from the internal list
@@ -70,13 +71,47 @@ export class Server {
 //    }
   }
 
+  private send404(res:http.ServerResponse, reason:string) {
+    res.statusCode = 404;
+    res.end(reason);
+  }
+
+
+  private sendRrd(req:http.ServerRequest, res:http.ServerResponse) {
+    this.graphSource.getGraph().then(
+      file => {
+        var stat = fs.statSync(file);
+
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': stat.size
+        });
+
+        var readStream = fs.createReadStream(file);
+        readStream.pipe(res);
+      },
+      error => {
+        console.log('send 404, because', error);
+        this.send404(res, '');
+      });
+  }
+
   start():void {
     http.createServer((req, res) => {
-//      console.log('Client connected');
-      var c = new Client(req, res);
-      this.connectedClients.push(c);
-      this.em.emit('connect', c);
+//      console.log('Client connected', req.url);
 
+      if (req.url.lastIndexOf('/rrd.png') === 0) {
+        return this.sendRrd(req, res);
+      }
+
+      if (req.url.lastIndexOf('/updates') === 0) {
+        var c = new Client(req, res);
+        this.connectedClients.push(c);
+        this.em.emit('connect', c);
+        return;
+      }
+
+      this.send404(res, 'Not found.');
     }).listen(this.port);
     console.log('Server has started on port ', this.port);
   }

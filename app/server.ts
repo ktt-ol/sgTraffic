@@ -4,7 +4,9 @@ require('source-map-support').install();
 import rawDataParser = require('./RawDataParser');
 import Iptables = require('./Iptables');
 import data = require('./data');
+import rrd = require('./rrd');
 import web = require('./web');
+//import os = require('os');
 
 // everything in SECONDS!
 var TIMEOUT = 10;
@@ -12,7 +14,8 @@ var SHORT_STORAGE_TIME = 60;
 var LONG_STORAGE_TIME = 60 * 10;
 
 var storage = new data.Storage(LONG_STORAGE_TIME / TIMEOUT, TIMEOUT);
-var server:web.Server = new web.Server(1337);
+var rrdDb = new rrd.DB('rrd/bandwidth.rrd', 'rrd');
+var server:web.Server = new web.Server(1337, rrdDb);
 var clientList = [];
 
 
@@ -42,12 +45,19 @@ function runner() {
       var avgShort:data.DataSet = storage.getAvgPerSecond(SHORT_STORAGE_TIME / TIMEOUT);
       var avgLong:data.DataSet = storage.getAvgPerSecond(LONG_STORAGE_TIME / TIMEOUT);
 
+      var now = {
+        totalIn: Math.round(p.totalIn / TIMEOUT),
+        totalOut: Math.round(p.totalOut / TIMEOUT)
+      };
+
+      rrdDb.addEntry({
+        upload: now.totalOut,
+        download: now.totalIn
+      });
+
       server.sendToClients({
         message: JSON.stringify({
-          now: {
-            totalIn: Math.round(p.totalIn / TIMEOUT),
-            totalOut: Math.round(p.totalOut / TIMEOUT)
-          },
+          now: now,
           short: avgShort,
           long: avgLong
         }),
