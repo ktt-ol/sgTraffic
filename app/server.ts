@@ -14,7 +14,7 @@ var SHORT_STORAGE_TIME = 60;
 var LONG_STORAGE_TIME = 60 * 10;
 
 var storage = new data.Storage(LONG_STORAGE_TIME / TIMEOUT, TIMEOUT);
-var rrdDb = new rrd.DB(__dirname + '/rrd/bandwidth.rrd', __dirname + '/rrd');
+var rrdDb = new rrd.DB(__dirname + '/../rrd/bandwidth.rrd', __dirname + '/../rrd');
 var server:web.Server = new web.Server(1337, rrdDb);
 var clientList = [];
 
