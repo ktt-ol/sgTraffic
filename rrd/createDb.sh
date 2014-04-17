@@ -1,6 +1,12 @@
 #!/bin/bash
 FILE=bandwidth.rrd
 
+which -s rrdtool
+if [ $? != 0 ]; then
+  echo "rrdtool must be installed."
+  exit 1
+fi
+
 if [ -e $FILE ]; then
   echo "rrd db already exists. Remove $FILE per hand, if you want to recreate the db."
   exit 1
