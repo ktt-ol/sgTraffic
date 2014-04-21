@@ -96,9 +96,15 @@ export class Server {
       });
   }
 
+  private addCorsHeader(res:http.ServerResponse) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "X-Requested-With");
+  }
+
   start():void {
     http.createServer((req, res) => {
 //      console.log('Client connected', req.url);
+      this.addCorsHeader(res);
 
       if (req.url.lastIndexOf('/rrd.png') === 0) {
         return this.sendRrd(req, res);
