@@ -12,7 +12,7 @@ export interface Entry {
 }
 
 export interface GraphSource {
-  getGraph():Q.Promise<string>;
+  getGraph(start:string, width:number, height:number):Q.Promise<string>;
 }
 
 export class DB implements GraphSource {
@@ -22,8 +22,7 @@ export class DB implements GraphSource {
   private GRAPH_CACHE_TIME = 60;
 
   private rrdEnabled = false;
-  private rrdFile:string = null;
-  private lastGraphUpdate:number = 0;
+  private lastGraphUpdate = {};
 
   constructor(private dbFile:string, private graphDir:string) {
 
@@ -33,7 +32,6 @@ export class DB implements GraphSource {
       return;
     }
 
-    this.rrdFile = this.graphDir + '/currentRrd.png';
 
     // check tool
     exec(this.RRD_CMD, (error:Error, stdout:NodeBuffer, stderr:NodeBuffer) => {
@@ -42,7 +40,7 @@ export class DB implements GraphSource {
         return;
       }
 
-      console.info('Found rrdtool, using tmp file:', this.rrdFile);
+      console.info('Found rrdtool, using folder for tmp graphs:', this.graphDir);
       this.rrdEnabled = true;
     });
   }
@@ -64,35 +62,47 @@ export class DB implements GraphSource {
     });
   }
 
-  getGraph():Q.Promise<string> {
+  getGraph(start, width, height):Q.Promise<string> {
     if (!this.rrdEnabled) {
       return Q.reject('rrd not enabled');
     }
 
-    if (Date.now() - this.lastGraphUpdate < this.GRAPH_CACHE_TIME * 1000) {
-      return Q.resolve(this.rrdFile);
+    start = start.match(/[0-9a-z-]+/)[0];
+    if (!start || start.length === 0) {
+      console.warn('Invalid start param', start);
+      return Q.reject('Invalid start param');
     }
 
-    this.lastGraphUpdate = Date.now();
-    var timeParam = '--start end-7d --end now';
+    var file = util.format('%s/graph_%dx%d_%s.png',
+      this.graphDir, width, height, start);
+
+    var key = start + '/' + width + '/' + height;
+    if (this.lastGraphUpdate[key] && (Date.now() - this.lastGraphUpdate[key] < this.GRAPH_CACHE_TIME * 1000)) {
+//      console.log('DEBUG: resolve with file ', file);
+      return Q.resolve(file);
+    }
+    this.lastGraphUpdate[key] = Date.now();
+
     var cmd = util.format(
-        '%s graph %s %s --height 600 --width 1000 ' +
+        '%s graph %s --start %s --end now --height %d --width %d ' +
+        '--upper-limit=1682176 --lower-limit=0 --imgformat=PNG ' +
         'DEF:u=%s:upload:AVERAGE DEF:d=%s:download:AVERAGE ' +
-        'LINE1:u#0000FF:"upload\l" LINE1:d#00CCFF:"download\l"',
-      this.RRD_CMD, this.rrdFile, timeParam, this.dbFile, this.dbFile
+        'AREA:d#008080:download AREA:u#FFA500:upload',
+      this.RRD_CMD, file, start, height, width, this.dbFile, this.dbFile
     );
+
 //    console.log(cmd);
 
     var deferred = Q.defer<string>();
     exec(cmd, (error:Error, stdout:NodeBuffer, stderr:NodeBuffer) => {
       if (error) {
         console.error('Can\'t create rrd graph: ', error);
-        deferred.reject(error);
+        deferred.reject(stderr.toString());
         return;
       }
 
       console.log('DEBUG: graph created', stdout);
-      deferred.resolve(this.rrdFile);
+      deferred.resolve(file);
     });
 
     return deferred.promise;

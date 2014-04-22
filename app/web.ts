@@ -2,7 +2,7 @@
 require('source-map-support').install();
 
 import events = require('events');
-import http = require('http');
+import express = require('express');
 import fs = require('fs');
 import rrd = require('./rrd');
 
@@ -14,7 +14,7 @@ export interface SSE {
 export class Client {
   private messageCounter:number = 1;
 
-  constructor(private req:http.ServerRequest, private res:http.ServerResponse) {
+  constructor(private req, private res:express.Response) {
     req.once('close', () => {
       this.res = null;
       this.req = null;
@@ -71,14 +71,28 @@ export class Server {
 //    }
   }
 
-  private send404(res:http.ServerResponse, reason:string) {
-    res.statusCode = 404;
-    res.end(reason);
-  }
+//  private send404(res:http.ServerResponse, reason:string) {
+//    res.statusCode = 404;
+//    res.end(reason);
+//  }
 
 
-  private sendRrd(req:http.ServerRequest, res:http.ServerResponse) {
-    this.graphSource.getGraph().then(
+  private sendRrd(req:express.Request, res:express.Response) {
+
+    var start = req.param('start');
+    if (!start) {
+      res.send(400, 'missing "start" parameter.');
+      return;
+    }
+
+    var width = parseInt(req.param('width'), 10);
+    var height = parseInt(req.param('height'), 10);
+    if (isNaN(width) || width <= 0 || isNaN(height) || height <= 0) {
+      res.send(400, 'invalid "width" or "height" parameter.');
+      return;
+    }
+
+    this.graphSource.getGraph(start, width, height).done(
       file => {
         var stat = fs.statSync(file);
 
@@ -91,38 +105,30 @@ export class Server {
         readStream.pipe(res);
       },
       error => {
-        console.log('send 404, because', error);
-        this.send404(res, '');
+        console.log('Image error', error);
+        res.send(500, error);
       });
   }
 
-  private addCorsHeader(res:http.ServerResponse) {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Headers", "X-Requested-With");
+  private newClient(req:express.Request, res:express.Response) {
+    var c = new Client(req, res);
+    this.connectedClients.push(c);
+    this.em.emit('connect', c);
   }
 
   start():void {
-    http.createServer((req, res) => {
-//      console.log('Client connected', req.url);
-      this.addCorsHeader(res);
 
-      if (req.url.lastIndexOf('/rrd.png') === 0) {
-        return this.sendRrd(req, res);
-      }
+    var app = express();
 
-      if (req.url.lastIndexOf('/updates') === 0) {
-        var c = new Client(req, res);
-        this.connectedClients.push(c);
-        this.em.emit('connect', c);
-        return;
-      }
+    app.get('/rrd.png', this.sendRrd.bind(this));
+    app.get('/updates', this.newClient.bind(this));
 
-      this.send404(res, 'Not found.');
-    }).listen(this.port);
-    console.log('Server has started on port ', this.port);
+    var server = app.listen(this.port, function () {
+      console.log('Listening on port %d', server.address().port);
+    });
   }
 
-  sendToClients(event:SSE): void {
+  sendToClients(event:SSE):void {
     this.removeInactiveClients();
 //    console.log('Sending ', event, ' to ', this.connectedClients.length, ' clients.');
     this.connectedClients.forEach(client => {
